@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #111215;
+    color: #e2e8f0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Custom DAW scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #16171d;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2e313d;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #414555;
+  }
+
+  /* Numeric tabular figures */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Range input customization for DAW faders & knobs */
+input[type="range"] {
+  accent-color: #f97316;
+}
+
+/* Timeline & grid animations */
+@keyframes pulse-playhead {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
