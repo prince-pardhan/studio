@@ -1,16 +1,25 @@
 /**
  * BeatFlow Studio - Offline Audio Exporter
- * Renders multitrack arrangements to pristine 16-bit stereo WAV using OfflineAudioContext.
+ * Renders multitrack arrangements to 16-bit, 24-bit, or 32-bit float stereo WAV
+ * with sample-rate selection, TPDF dithering, customizable reverb tails, and mastering chain processing.
  */
-import { Project, ArrangementClip, Track } from '../types/project';
+import { Project } from '../types/project';
 import { DrumSynthEngine } from './DrumSynthEngine';
 import { InstrumentEngine } from './InstrumentEngine';
 import { MixerEngine } from './MixerEngine';
-import { audioBufferToWav } from './WavEncoder';
+import { audioBufferToWav, WavEncodingOptions } from './WavEncoder';
 
 export interface ExportProgress {
   progress: number; // 0 to 1
   stage: 'rendering' | 'encoding' | 'complete';
+}
+
+export interface RenderOptions {
+  bitDepth?: 16 | 24 | 32;
+  sampleRate?: 44100 | 48000 | 96000;
+  dither?: 'none' | 'tpdf';
+  tailSec?: number;
+  applyMastering?: boolean;
 }
 
 export class AudioExporter {
@@ -18,10 +27,13 @@ export class AudioExporter {
     project: Project,
     audioBufferCache: Map<string, AudioBuffer>,
     onProgress?: (p: ExportProgress) => void,
-    selectedTrackIndex?: number
-  ): Promise<Blob> {
+    selectedTrackIndex?: number,
+    options?: RenderOptions
+  ): Promise<{ blob: Blob; maxPeak: number; isClipping: boolean }> {
     const bpm = project.bpm;
     const secondsPer16th = (60.0 / bpm) / 4.0;
+    const sampleRate = options?.sampleRate || 44100;
+    const tailSec = options?.tailSec ?? 2.0;
 
     // Calculate total duration in steps
     let maxStep = 64;
@@ -30,10 +42,8 @@ export class AudioExporter {
       const end = clip.startStep + clip.durationSteps;
       if (end > maxStep) maxStep = end;
     }
-    // Add 2 bars tail for reverb / delay release
-    const totalStepsWithTail = maxStep + 32;
-    const totalDurationSec = totalStepsWithTail * secondsPer16th;
-    const sampleRate = 44100;
+
+    const totalDurationSec = maxStep * secondsPer16th + tailSec;
     const lengthSamples = Math.ceil(totalDurationSec * sampleRate);
 
     onProgress?.({ progress: 0.1, stage: 'rendering' });
@@ -44,13 +54,18 @@ export class AudioExporter {
     const drumSynth = new DrumSynthEngine(offlineCtx);
     const instrumentEngine = new InstrumentEngine(offlineCtx);
 
-    // Sync mixer settings
+    // Apply mastering session if requested
+    if (options?.applyMastering !== false && project.masteringSession) {
+      mixer.mastering.applySessionConfig(project.masteringSession);
+    }
+
+    // Sync mixer channel settings & modular plugins
     const hasAnySolo = project.mixerChannels.some((c) => c.solo);
     for (const ch of project.mixerChannels) {
       mixer.updateChannel(ch, hasAnySolo);
     }
 
-    // Schedule all clips
+    // Schedule clips
     const relevantClips =
       selectedTrackIndex !== undefined
         ? project.clips.filter((c) => c.trackIndex === selectedTrackIndex)
@@ -78,7 +93,12 @@ export class AudioExporter {
             if (channel.type === 'drum' && channel.drumType) {
               const v = pattern.drumSteps[channel.id]?.[patStep];
               if (v && v > 0) {
-                drumSynth.triggerDrum(channel.drumType, dest, stepTime, v * channel.volume * track.volume);
+                drumSynth.triggerDrum(
+                  channel.drumType,
+                  dest,
+                  stepTime,
+                  v * channel.volume * track.volume
+                );
               }
             } else if (channel.type === 'synth') {
               const notes = pattern.notes[channel.id];
@@ -116,19 +136,34 @@ export class AudioExporter {
       }
     }
 
-    onProgress?.({ progress: 0.4, stage: 'rendering' });
+    onProgress?.({ progress: 0.5, stage: 'rendering' });
 
-    // Render audio
+    // Render audio graph
     const renderedBuffer = await offlineCtx.startRendering();
+
+    // Scan for peak level and clipping
+    let maxPeak = 0;
+    for (let c = 0; c < renderedBuffer.numberOfChannels; c++) {
+      const data = renderedBuffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) {
+        const abs = Math.abs(data[i]);
+        if (abs > maxPeak) maxPeak = abs;
+      }
+    }
+    const isClipping = maxPeak >= 0.999;
 
     onProgress?.({ progress: 0.85, stage: 'encoding' });
 
-    // Encode to WAV Blob
-    const wavBlob = audioBufferToWav(renderedBuffer);
+    // Encode to WAV Blob with bit depth and dither
+    const wavBlob = audioBufferToWav(renderedBuffer, {
+      bitDepth: options?.bitDepth || 16,
+      dither: options?.dither || 'none',
+      float32: options?.bitDepth === 32,
+    });
 
     onProgress?.({ progress: 1.0, stage: 'complete' });
 
-    return wavBlob;
+    return { blob: wavBlob, maxPeak, isClipping };
   }
 
   static downloadWav(blob: Blob, filename = 'BeatFlow_Arrangement.wav'): void {

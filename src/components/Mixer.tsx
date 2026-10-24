@@ -1,7 +1,8 @@
 /**
- * BeatFlow Studio - Audio Mixer Console & Effects Rack
+ * BeatFlow Studio - Audio Mixer Console & Modular Plugin Rack
  * Master bus + 8 insert channels with animated LED VU meters, dB faders, panning,
- * mute/solo, and interactive Effect Rack (3-band EQ, Reverb, Delay, Distortion).
+ * mute/solo, and interactive modular Plugin Rack (supporting 19 studio audio effects,
+ * drag-and-drop reordering, bypass, preset selection, and parameter editing).
  */
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -14,23 +15,39 @@ import {
   Radio,
   Flame,
   Zap,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  ExternalLink,
 } from 'lucide-react';
-import { Project, MixerChannel, EffectConfig } from '../types/project';
+import { Project, MixerChannel, EffectConfig, EffectType } from '../types/project';
 import { AudioEngine } from '../audio/AudioEngine';
+import { PluginBrowserModal } from './PluginBrowserModal';
+import { PluginWindow } from './PluginWindow';
 
 interface MixerProps {
   project: Project;
   onUpdateMixerChannel: (channelId: number, updates: Partial<MixerChannel>) => void;
   onUpdateMixerEffect: (channelId: number, effectId: string, updates: Partial<EffectConfig>) => void;
+  onAddPlugin?: (channelId: number, type: EffectType) => void;
+  onRemovePlugin?: (channelId: number, effectId: string) => void;
+  onReorderPlugins?: (channelId: number, fromIndex: number, toIndex: number) => void;
 }
 
 export const Mixer: React.FC<MixerProps> = ({
   project,
   onUpdateMixerChannel,
   onUpdateMixerEffect,
+  onAddPlugin,
+  onRemovePlugin,
+  onReorderPlugins,
 }) => {
   const [selectedChannelId, setSelectedChannelId] = useState<number>(0);
   const [channelPeaks, setChannelPeaks] = useState<Record<number, number>>({});
+  const [isPluginBrowserOpen, setIsPluginBrowserOpen] = useState(false);
+  const [activeEditingEffect, setActiveEditingEffect] = useState<EffectConfig | null>(null);
+
   const audioEngine = useRef(AudioEngine.getInstance()).current;
 
   // Real-time VU meter polling loop
@@ -233,385 +250,187 @@ export const Mixer: React.FC<MixerProps> = ({
         </div>
       </div>
 
-      {/* Right: Selected Channel Effects Rack */}
-      <div className="w-80 bg-[#161720] flex flex-col overflow-y-auto">
+      {/* Right: Selected Channel Modular Effects Rack */}
+      <div className="w-88 bg-[#161720] flex flex-col border-l border-[#242635] overflow-hidden">
+        {/* Rack Header */}
         <div className="p-3 bg-[#1a1b26] border-b border-[#252837] flex items-center justify-between">
           <div>
             <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
-              Effects Slot
+              Insert Effects ({selectedChannel.effects.length})
             </span>
             <h3 className="text-xs font-bold text-zinc-100 truncate">
-              {selectedChannel.name}
+              {selectedChannel.name} {selectedChannel.id === 0 ? '(Master Bus)' : `(Track ${selectedChannel.id})`}
             </h3>
           </div>
-          <div
-            className="w-3 h-3 rounded-full"
-            style={{ backgroundColor: selectedChannel.color }}
-          />
+
+          <button
+            onClick={() => setIsPluginBrowserOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-black bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-400 hover:to-amber-300 rounded shadow-sm transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add FX</span>
+          </button>
         </div>
 
-        {/* Effects List */}
-        <div className="p-4 space-y-4">
-          {/* Effect: 3-Band Parametric EQ */}
-          {(() => {
-            const eq = selectedChannel.effects.find((e) => e.type === 'eq3') || {
-              id: 'fx_eq',
-              type: 'eq3' as const,
-              name: 'Parametric 3-Band EQ',
-              enabled: true,
-              params: { low: 0, mid: 0, high: 0 },
-            };
+        {/* Plugin Slots List */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-[#121319]">
+          {selectedChannel.effects.length === 0 ? (
+            <div
+              onClick={() => setIsPluginBrowserOpen(true)}
+              className="border-2 border-dashed border-[#2b2e40] hover:border-orange-500/50 rounded-xl p-8 text-center flex flex-col items-center justify-center cursor-pointer transition-colors group mt-6"
+            >
+              <div className="w-10 h-10 rounded-full bg-[#202230] group-hover:bg-[#282a3d] flex items-center justify-center text-zinc-400 group-hover:text-orange-400 mb-2 transition-colors">
+                <Plus className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-bold text-zinc-300 group-hover:text-white">
+                No Insert Effects Loaded
+              </span>
+              <p className="text-[11px] text-zinc-500 mt-1 max-w-[200px]">
+                Click to browse 19 studio plugins (EQ, Compressor, Reverb, Chorus, Distortion, etc.)
+              </p>
+            </div>
+          ) : (
+            selectedChannel.effects.map((effect, idx) => {
+              return (
+                <div
+                  key={effect.id}
+                  className={`bg-[#1a1b26] border rounded-xl p-3 flex flex-col gap-2 transition-all shadow-sm ${
+                    effect.enabled
+                      ? 'border-[#2d3043] hover:border-[#42465e]'
+                      : 'border-[#222430] opacity-60'
+                  }`}
+                >
+                  {/* Slot Top Bar */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-4 h-4 rounded text-[9px] font-mono font-bold bg-[#111218] text-zinc-500 flex items-center justify-center">
+                        {idx + 1}
+                      </span>
 
-            return (
-              <div className="bg-[#1c1d27] border border-[#2b2e3e] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <Waves className="w-3.5 h-3.5 text-cyan-400" />
-                    3-Band EQ
-                  </span>
-                  <button
-                    onClick={() =>
-                      onUpdateMixerEffect(selectedChannel.id, eq.id, {
-                        enabled: !eq.enabled,
-                      })
-                    }
-                    className={`p-1 rounded ${
-                      eq.enabled ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                      {/* Power / Bypass Toggle */}
+                      <button
+                        onClick={() =>
+                          onUpdateMixerEffect(selectedChannel.id, effect.id, {
+                            enabled: !effect.enabled,
+                          })
+                        }
+                        title={effect.enabled ? 'Bypass effect' : 'Enable effect'}
+                        className={`p-1 rounded transition-colors ${
+                          effect.enabled ? 'text-emerald-400 hover:text-emerald-300' : 'text-zinc-600'
+                        }`}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="flex flex-col items-center gap-1 bg-[#13141a] p-2 rounded">
-                    <span className="text-[10px] text-zinc-400 font-bold">LOW</span>
-                    <input
-                      type="range"
-                      min={-12}
-                      max={12}
-                      step={0.5}
-                      value={eq.params.low ?? 0}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, eq.id, {
-                          params: { ...eq.params, low: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-full h-1 bg-zinc-700 cursor-pointer"
-                    />
-                    <span className="font-mono text-[10px] text-zinc-300">
-                      {(eq.params.low ?? 0).toFixed(1)}dB
+                      <span className="text-xs font-bold text-zinc-200 truncate">
+                        {effect.name}
+                      </span>
+                    </div>
+
+                    {/* Actions: Reorder & Delete */}
+                    <div className="flex items-center gap-1">
+                      {idx > 0 && onReorderPlugins && (
+                        <button
+                          onClick={() => onReorderPlugins(selectedChannel.id, idx, idx - 1)}
+                          title="Move up in signal chain"
+                          className="p-1 text-zinc-500 hover:text-white rounded hover:bg-[#252838]"
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                        </button>
+                      )}
+                      {idx < selectedChannel.effects.length - 1 && onReorderPlugins && (
+                        <button
+                          onClick={() => onReorderPlugins(selectedChannel.id, idx, idx + 1)}
+                          title="Move down in signal chain"
+                          className="p-1 text-zinc-500 hover:text-white rounded hover:bg-[#252838]"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setActiveEditingEffect(effect)}
+                        title="Open Plugin Parameter Editor"
+                        className="p-1 text-cyan-400 hover:text-cyan-300 rounded hover:bg-[#252838]"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+
+                      {onRemovePlugin && (
+                        <button
+                          onClick={() => onRemovePlugin(selectedChannel.id, effect.id)}
+                          title="Remove plugin"
+                          className="p-1 text-zinc-500 hover:text-red-400 rounded hover:bg-[#252838]"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Primary Quick Slider */}
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-[#222432]">
+                    <span className="text-[10px] text-zinc-400 font-mono">
+                      Wet Mix: {Math.round((effect.params.wet ?? 1.0) * 100)}%
                     </span>
-                  </div>
-
-                  <div className="flex flex-col items-center gap-1 bg-[#13141a] p-2 rounded">
-                    <span className="text-[10px] text-zinc-400 font-bold">MID</span>
-                    <input
-                      type="range"
-                      min={-12}
-                      max={12}
-                      step={0.5}
-                      value={eq.params.mid ?? 0}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, eq.id, {
-                          params: { ...eq.params, mid: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-full h-1 bg-zinc-700 cursor-pointer"
-                    />
-                    <span className="font-mono text-[10px] text-zinc-300">
-                      {(eq.params.mid ?? 0).toFixed(1)}dB
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col items-center gap-1 bg-[#13141a] p-2 rounded">
-                    <span className="text-[10px] text-zinc-400 font-bold">HIGH</span>
-                    <input
-                      type="range"
-                      min={-12}
-                      max={12}
-                      step={0.5}
-                      value={eq.params.high ?? 0}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, eq.id, {
-                          params: { ...eq.params, high: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-full h-1 bg-zinc-700 cursor-pointer"
-                    />
-                    <span className="font-mono text-[10px] text-zinc-300">
-                      {(eq.params.high ?? 0).toFixed(1)}dB
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Effect: Delay */}
-          {(() => {
-            const delay = selectedChannel.effects.find((e) => e.type === 'delay') || {
-              id: 'fx_delay',
-              type: 'delay' as const,
-              name: 'Stereo Delay',
-              enabled: true,
-              params: { wet: 0.25, delayTime: 0.25, feedback: 0.35 },
-            };
-
-            return (
-              <div className="bg-[#1c1d27] border border-[#2b2e3e] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <Radio className="w-3.5 h-3.5 text-amber-400" />
-                    Echo Delay
-                  </span>
-                  <button
-                    onClick={() =>
-                      onUpdateMixerEffect(selectedChannel.id, delay.id, {
-                        enabled: !delay.enabled,
-                      })
-                    }
-                    className={`p-1 rounded ${
-                      delay.enabled ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Wet / Dry:</span>
                     <input
                       type="range"
                       min={0}
                       max={1}
                       step={0.02}
-                      value={delay.params.wet ?? 0.2}
+                      value={effect.params.wet ?? 1.0}
                       onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, delay.id, {
-                          params: { ...delay.params, wet: parseFloat(e.target.value) },
+                        onUpdateMixerEffect(selectedChannel.id, effect.id, {
+                          params: { ...effect.params, wet: parseFloat(e.target.value) },
                         })
                       }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Feedback:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={0.8}
-                      step={0.02}
-                      value={delay.params.feedback ?? 0.3}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, delay.id, {
-                          params: { ...delay.params, feedback: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
+                      className="w-24 h-1 bg-zinc-700 cursor-pointer"
                     />
                   </div>
                 </div>
-              </div>
-            );
-          })()}
-
-          {/* Effect: Reverb */}
-          {(() => {
-            const reverb = selectedChannel.effects.find((e) => e.type === 'reverb') || {
-              id: 'fx_reverb',
-              type: 'reverb' as const,
-              name: 'Studio Reverb',
-              enabled: true,
-              params: { wet: 0.3, roomSize: 0.6 },
-            };
-
-            return (
-              <div className="bg-[#1c1d27] border border-[#2b2e3e] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                    Convolution Reverb
-                  </span>
-                  <button
-                    onClick={() =>
-                      onUpdateMixerEffect(selectedChannel.id, reverb.id, {
-                        enabled: !reverb.enabled,
-                      })
-                    }
-                    className={`p-1 rounded ${
-                      reverb.enabled ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Wet Mix:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      value={reverb.params.wet ?? 0.3}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, reverb.id, {
-                          params: { ...reverb.params, wet: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Effect: Distortion / Saturation */}
-          {(() => {
-            const dist = selectedChannel.effects.find((e) => e.type === 'distortion') || {
-              id: 'fx_dist',
-              type: 'distortion' as const,
-              name: 'Warm Tube Distortion',
-              enabled: false,
-              params: { wet: 0.35, distortion: 0.5 },
-            };
-
-            return (
-              <div className="bg-[#1c1d27] border border-[#2b2e3e] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-orange-500" />
-                    Tube Drive / Saturation
-                  </span>
-                  <button
-                    onClick={() =>
-                      onUpdateMixerEffect(selectedChannel.id, dist.id, {
-                        enabled: !dist.enabled,
-                      })
-                    }
-                    className={`p-1 rounded ${
-                      dist.enabled ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Drive:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      value={dist.params.distortion ?? 0.5}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, dist.id, {
-                          params: { ...dist.params, distortion: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Wet Mix:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      value={dist.params.wet ?? 0.35}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, dist.id, {
-                          params: { ...dist.params, wet: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Effect: Stereo Chorus */}
-          {(() => {
-            const chorus = selectedChannel.effects.find((e) => e.type === 'chorus') || {
-              id: 'fx_chorus',
-              type: 'chorus' as const,
-              name: 'Stereo Chorus Ensemble',
-              enabled: false,
-              params: { wet: 0.3, rate: 1.5 },
-            };
-
-            return (
-              <div className="bg-[#1c1d27] border border-[#2b2e3e] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-blue-400" />
-                    Ensemble Chorus
-                  </span>
-                  <button
-                    onClick={() =>
-                      onUpdateMixerEffect(selectedChannel.id, chorus.id, {
-                        enabled: !chorus.enabled,
-                      })
-                    }
-                    className={`p-1 rounded ${
-                      chorus.enabled ? 'text-emerald-400' : 'text-zinc-500'
-                    }`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Rate (Hz):</span>
-                    <input
-                      type="range"
-                      min={0.2}
-                      max={6.0}
-                      step={0.1}
-                      value={chorus.params.rate ?? 1.5}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, chorus.id, {
-                          params: { ...chorus.params, rate: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400 text-[11px]">Wet Mix:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      value={chorus.params.wet ?? 0.3}
-                      onChange={(e) =>
-                        onUpdateMixerEffect(selectedChannel.id, chorus.id, {
-                          params: { ...chorus.params, wet: parseFloat(e.target.value) },
-                        })
-                      }
-                      className="w-28 h-1 bg-zinc-700 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+              );
+            })
+          )}
         </div>
       </div>
+
+      {/* Plugin Browser Modal */}
+      <PluginBrowserModal
+        isOpen={isPluginBrowserOpen}
+        onClose={() => setIsPluginBrowserOpen(false)}
+        targetChannelId={selectedChannel.id}
+        channelName={selectedChannel.name}
+        onAddPlugin={(chId, type) => {
+          onAddPlugin?.(chId, type);
+        }}
+      />
+
+      {/* Floating Plugin Parameter Editor Window */}
+      <PluginWindow
+        isOpen={!!activeEditingEffect}
+        onClose={() => setActiveEditingEffect(null)}
+        channelId={selectedChannel.id}
+        channelName={selectedChannel.name}
+        effect={activeEditingEffect}
+        onUpdateParams={(chId, fxId, params) => {
+          onUpdateMixerEffect(chId, fxId, { params });
+          if (activeEditingEffect && activeEditingEffect.id === fxId) {
+            setActiveEditingEffect({
+              ...activeEditingEffect,
+              params: { ...activeEditingEffect.params, ...params },
+            });
+          }
+        }}
+        onToggleBypass={(chId, fxId, bypass) => {
+          onUpdateMixerEffect(chId, fxId, { enabled: !bypass });
+          if (activeEditingEffect && activeEditingEffect.id === fxId) {
+            setActiveEditingEffect({
+              ...activeEditingEffect,
+              enabled: !bypass,
+            });
+          }
+        }}
+      />
     </div>
   );
 };

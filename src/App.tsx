@@ -24,6 +24,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { TemplatesModal } from './components/TemplatesModal';
 import { AudioSettingsModal } from './components/AudioSettingsModal';
 import { WaveformEditorModal } from './components/WaveformEditorModal';
+import { MasteringSuite } from './components/MasteringSuite';
 import { MidiService } from './midi/MidiService';
 import { AudioAsset, ArrangementClip, Note } from './types/project';
 
@@ -147,13 +148,14 @@ export default function App() {
         }
       }
 
-      // Number keys 1-6: Switch active workspace view
+      // Number keys 1-7: Switch active workspace view
       if (e.key === '1') store.setActiveTab('playlist');
       if (e.key === '2') store.setActiveTab('channelrack');
       if (e.key === '3') store.setActiveTab('pianoroll');
       if (e.key === '4') store.setActiveTab('mixer');
       if (e.key === '5') store.setActiveTab('performance');
       if (e.key === '6') store.setActiveTab('dj');
+      if (e.key === '7') store.setActiveTab('mastering');
 
       // Esc: Close all modals & clear selected clip
       if (e.key === 'Escape') {
@@ -376,12 +378,25 @@ export default function App() {
               project={store.project}
               onUpdateMixerChannel={store.updateMixerChannel}
               onUpdateMixerEffect={store.updateMixerEffect}
+              onAddPlugin={store.addMixerPlugin}
+              onRemovePlugin={store.removeMixerPlugin}
+              onReorderPlugins={store.reorderMixerPlugins}
             />
           )}
 
           {store.activeTab === 'performance' && <PerformancePads />}
 
           {store.activeTab === 'dj' && <DJDecks />}
+
+          {store.activeTab === 'mastering' && (
+            <MasteringSuite
+              project={store.project}
+              onUpdateMasteringSession={store.updateMasteringSession}
+              onUpdateProcessor={store.updateMasteringProcessor}
+              onReorderProcessors={store.reorderMasteringProcessors}
+              onOpenExport={() => setIsExportOpen(true)}
+            />
+          )}
         </main>
       </div>
 

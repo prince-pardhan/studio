@@ -22,11 +22,15 @@ import {
   ScaleKey,
   ScaleType,
   ThemeMode,
+  EffectType,
+  MasteringSession,
+  MasteringProcessorConfig,
 } from '../types/project';
 import { createDefaultProject } from './defaultProject';
 import { ProjectStorage } from '../storage/ProjectStorage';
 import { AudioEngine } from '../audio/AudioEngine';
 import { AlgorithmicMusicGen } from '../ai/AlgorithmicMusicGen';
+import { PluginRegistry } from '../plugins/PluginRegistry';
 
 export function useProjectStore() {
   const [project, setProject] = useState<Project>(() => createDefaultProject());
@@ -54,6 +58,9 @@ export function useProjectStore() {
   // Sync project to AudioEngine
   useEffect(() => {
     audioEngine.setProject(project);
+    if (project.masteringSession) {
+      audioEngine.mixer.mastering.applySessionConfig(project.masteringSession);
+    }
   }, [project, audioEngine]);
 
   // Subscribe to AudioEngine transport playhead
@@ -576,6 +583,137 @@ export function useProjectStore() {
     [mutateProject]
   );
 
+  // Modular Plugin Architecture Actions
+  const addMixerPlugin = useCallback(
+    (mixerId: number, type: EffectType) => {
+      mutateProject((prev) => {
+        const newFx = PluginRegistry.createDefaultConfig(type);
+        return {
+          ...prev,
+          mixerChannels: prev.mixerChannels.map((c) =>
+            c.id === mixerId ? { ...c, effects: [...c.effects, newFx] } : c
+          ),
+        };
+      });
+    },
+    [mutateProject]
+  );
+
+  const removeMixerPlugin = useCallback(
+    (mixerId: number, effectId: string) => {
+      mutateProject((prev) => ({
+        ...prev,
+        mixerChannels: prev.mixerChannels.map((c) =>
+          c.id === mixerId ? { ...c, effects: c.effects.filter((e) => e.id !== effectId) } : c
+        ),
+      }));
+    },
+    [mutateProject]
+  );
+
+  const reorderMixerPlugins = useCallback(
+    (mixerId: number, fromIndex: number, toIndex: number) => {
+      mutateProject((prev) => {
+        return {
+          ...prev,
+          mixerChannels: prev.mixerChannels.map((c) => {
+            if (c.id !== mixerId) return c;
+            const updated = [...c.effects];
+            const [moved] = updated.splice(fromIndex, 1);
+            updated.splice(toIndex, 0, moved);
+            return { ...c, effects: updated };
+          }),
+        };
+      });
+    },
+    [mutateProject]
+  );
+
+  const setMixerPluginBypass = useCallback(
+    (mixerId: number, effectId: string, bypass: boolean) => {
+      updateMixerEffect(mixerId, effectId, { enabled: !bypass });
+    },
+    [updateMixerEffect]
+  );
+
+  const updateMixerPluginParams = useCallback(
+    (mixerId: number, effectId: string, params: Record<string, any>) => {
+      mutateProject((prev) => ({
+        ...prev,
+        mixerChannels: prev.mixerChannels.map((c) => {
+          if (c.id !== mixerId) return c;
+          return {
+            ...c,
+            effects: c.effects.map((e) =>
+              e.id === effectId ? { ...e, params: { ...e.params, ...params } } : e
+            ),
+          };
+        }),
+      }));
+    },
+    [mutateProject]
+  );
+
+  // Mastering Suite Actions
+  const updateMasteringSession = useCallback(
+    (updates: Partial<MasteringSession>) => {
+      mutateProject((prev) => {
+        const currentSession = prev.masteringSession || {
+          processors: [],
+          bypassAll: false,
+          targetLufs: -14,
+          referenceGainDb: 0,
+          matchLoudness: false,
+          outputCeiling: -0.2,
+          ditherType: 'tpdf' as const,
+        };
+        const updated = { ...currentSession, ...updates };
+        audioEngine.mixer.mastering.applySessionConfig(updated);
+        return {
+          ...prev,
+          masteringSession: updated,
+        };
+      });
+    },
+    [mutateProject, audioEngine]
+  );
+
+  const updateMasteringProcessor = useCallback(
+    (procId: string, updates: Partial<MasteringProcessorConfig>) => {
+      mutateProject((prev) => {
+        if (!prev.masteringSession) return prev;
+        const updatedProcs = prev.masteringSession.processors.map((p) =>
+          p.id === procId ? { ...p, ...updates } : p
+        );
+        const updatedSession = { ...prev.masteringSession, processors: updatedProcs };
+        audioEngine.mixer.mastering.applySessionConfig(updatedSession);
+        return {
+          ...prev,
+          masteringSession: updatedSession,
+        };
+      });
+    },
+    [mutateProject, audioEngine]
+  );
+
+  const reorderMasteringProcessors = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      mutateProject((prev) => {
+        if (!prev.masteringSession) return prev;
+        const procs = [...prev.masteringSession.processors];
+        const [moved] = procs.splice(fromIndex, 1);
+        procs.splice(toIndex, 0, moved);
+        const updatedSession = { ...prev.masteringSession, processors: procs };
+        audioEngine.mixer.mastering.applySessionConfig(updatedSession);
+        return {
+          ...prev,
+          masteringSession: updatedSession,
+        };
+      });
+    },
+    [mutateProject, audioEngine]
+  );
+
   const updateProjectTracks = useCallback(
     (tracks: Track[]) => {
       mutateProject((prev) => ({
@@ -686,6 +824,14 @@ export function useProjectStore() {
     updateChannel,
     updateMixerChannel,
     updateMixerEffect,
+    addMixerPlugin,
+    removeMixerPlugin,
+    reorderMixerPlugins,
+    setMixerPluginBypass,
+    updateMixerPluginParams,
+    updateMasteringSession,
+    updateMasteringProcessor,
+    reorderMasteringProcessors,
     updateProjectTracks,
     loadTemplate,
     loadProject,

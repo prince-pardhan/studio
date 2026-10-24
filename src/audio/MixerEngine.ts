@@ -4,6 +4,8 @@
  * Stereo Width, animated Peak/RMS meters, Master clipping indicator, and DSP effect rack.
  */
 import { MixerChannel, EffectConfig } from '../types/project';
+import { PluginProcessorFactory, PluginAudioInstance } from '../plugins/PluginProcessor';
+import { MasteringEngine } from './MasteringEngine';
 
 interface ChannelNodes {
   id: number;
@@ -52,6 +54,8 @@ export class MixerEngine {
   private masterOutput: GainNode | null = null;
   private destination: AudioNode;
   public isMasterClipping = false;
+  public mastering: MasteringEngine;
+  public channelPlugins: Map<number, PluginAudioInstance[]> = new Map();
 
   // Send Return Buses
   public sendABus!: GainNode; // Reverb Bus
@@ -60,6 +64,7 @@ export class MixerEngine {
   constructor(ctx: AudioContext | BaseAudioContext, destination?: AudioNode) {
     this.ctx = ctx;
     this.destination = destination || ctx.destination;
+    this.mastering = MasteringEngine.getInstance(this.ctx);
     this.initSendBuses();
     this.initMasterBus();
     for (let i = 1; i <= 8; i++) {
@@ -127,7 +132,8 @@ export class MixerEngine {
     panner.connect(faderGain);
     faderGain.connect(muteGain);
     muteGain.connect(analyser);
-    analyser.connect(this.destination);
+    analyser.connect(this.mastering.inputNode);
+    this.mastering.outputNode.connect(this.destination);
 
     this.masterOutput = faderGain;
 
@@ -421,9 +427,61 @@ export class MixerEngine {
       ch.sendBGain.gain.setValueAtTime(channel.sendB, this.ctx.currentTime);
     }
 
-    for (const fx of channel.effects) {
-      this.applyEffect(channel.id, fx);
+    // Sync modular plugin chain
+    this.syncChannelPlugins(channel.id, channel.effects);
+  }
+
+  public syncChannelPlugins(channelId: number, effects: EffectConfig[]): void {
+    const current = this.channelPlugins.get(channelId) || [];
+    const ch = this.channels.get(channelId);
+    if (!ch) return;
+
+    // Check if configuration structure matches
+    const same =
+      current.length === effects.length &&
+      current.every(
+        (inst, i) => inst.config.id === effects[i].id && inst.config.type === effects[i].type
+      );
+
+    if (same) {
+      effects.forEach((fx, i) => {
+        current[i].updateParams(fx.params);
+        current[i].setBypass(!fx.enabled);
+      });
+      return;
     }
+
+    // Tear down existing plugin chain
+    current.forEach((inst) => inst.destroy());
+
+    // Create new plugin chain nodes
+    const newInstances: PluginAudioInstance[] = [];
+    for (const fx of effects) {
+      const inst = PluginProcessorFactory.create(this.ctx, fx);
+      newInstances.push(inst);
+    }
+
+    // Connect into insert path
+    if (newInstances.length > 0) {
+      try {
+        ch.distortionOut.disconnect(ch.panner);
+      } catch {}
+
+      ch.distortionOut.connect(newInstances[0].input);
+      for (let i = 0; i < newInstances.length - 1; i++) {
+        newInstances[i].output.connect(newInstances[i + 1].input);
+      }
+      newInstances[newInstances.length - 1].output.connect(ch.panner);
+    } else {
+      try {
+        ch.distortionOut.disconnect();
+        ch.distortionOut.connect(ch.panner);
+        ch.distortionOut.connect(ch.sendAGain);
+        ch.distortionOut.connect(ch.sendBGain);
+      } catch {}
+    }
+
+    this.channelPlugins.set(channelId, newInstances);
   }
 
   applyEffect(channelId: number, fx: EffectConfig): void {

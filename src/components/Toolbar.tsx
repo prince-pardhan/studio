@@ -219,6 +219,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           DJ Decks
         </button>
+        <button
+          onClick={() => setActiveTab('mastering')}
+          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+            activeTab === 'mastering'
+              ? 'bg-[#272936] text-purple-400 shadow-sm border border-purple-500/30'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          Mastering
+        </button>
       </nav>
 
       {/* Zone 3: AI Assistant, Theory, Theme, and Export Actions */}

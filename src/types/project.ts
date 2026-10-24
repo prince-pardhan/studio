@@ -144,59 +144,75 @@ export interface Track {
 }
 
 export type EffectType =
+  | 'parametric_eq'
   | 'eq3'
+  | 'compressor'
+  | 'limiter'
+  | 'noise_gate'
+  | 'expander'
   | 'reverb'
   | 'delay'
-  | 'distortion'
-  | 'compressor'
-  | 'filter'
   | 'chorus'
-  | 'bitcrusher'
   | 'flanger'
+  | 'phaser'
+  | 'distortion'
+  | 'bitcrusher'
+  | 'stereowidth'
+  | 'autopan'
   | 'tremolo'
-  | 'stereowidth';
+  | 'filter'
+  | 'transient_shaper'
+  | 'pitch_shifter';
+
+export type PluginCategory =
+  | 'eq'
+  | 'dynamics'
+  | 'reverb'
+  | 'delay'
+  | 'modulation'
+  | 'distortion'
+  | 'utility'
+  | 'mastering';
+
+export interface PluginParamDef {
+  id: string;
+  name: string;
+  type: 'number' | 'enum' | 'boolean';
+  min?: number;
+  max?: number;
+  step?: number;
+  defaultVal: number | string | boolean;
+  unit?: string;
+  options?: { label: string; value: string | number }[];
+  description?: string;
+}
+
+export interface PluginPreset {
+  id: string;
+  name: string;
+  pluginId: EffectType;
+  params: Record<string, any>;
+  isFactory?: boolean;
+}
+
+export interface PluginDefinition {
+  id: EffectType;
+  name: string;
+  category: PluginCategory;
+  description: string;
+  params: PluginParamDef[];
+  factoryPresets: PluginPreset[];
+  iconName?: string;
+  isMasteringGrade?: boolean;
+}
 
 export interface EffectConfig {
   id: string;
   type: EffectType;
   name: string;
   enabled: boolean;
-  params: {
-    // EQ3
-    low?: number; // dB (-24 to +12)
-    mid?: number; // dB (-24 to +12)
-    high?: number; // dB (-24 to +12)
-    // Reverb
-    roomSize?: number; // 0 to 1
-    dampening?: number; // 200 to 10000
-    // Delay
-    delayTime?: number; // in seconds or musical division
-    feedback?: number; // 0 to 0.95
-    // Distortion
-    distortion?: number; // 0 to 1
-    // Compressor
-    threshold?: number; // dB (-60 to 0)
-    ratio?: number; // 1 to 20
-    attack?: number; // seconds
-    release?: number; // seconds
-    // Filter
-    cutoff?: number; // Hz (20 to 20000)
-    resonance?: number; // 0.1 to 20
-    filterType?: 'lowpass' | 'highpass';
-    // Chorus & Flanger
-    rate?: number; // Hz (0.1 to 10)
-    depth?: number; // 0 to 1
-    // BitCrusher
-    bits?: number; // 1 to 16
-    reduction?: number; // 1 to 16
-    // Tremolo
-    tremoloRate?: number;
-    tremoloDepth?: number;
-    // Stereo Width
-    stereoWidth?: number; // 0.0 (mono) to 1.0 (normal) to 2.0 (super-wide)
-    // Common
-    wet?: number; // 0 to 1
-  };
+  params: Record<string, any>;
+  presetName?: string;
 }
 
 export interface MixerChannel {
@@ -229,6 +245,32 @@ export interface AudioAsset {
 
 export type ThemeMode = 'dark' | 'cyber' | 'light';
 
+export type MasteringProcessorType =
+  | 'mastering_eq'
+  | 'multiband_dynamics'
+  | 'stereo_imager'
+  | 'analog_saturation'
+  | 'brickwall_limiter';
+
+export interface MasteringProcessorConfig {
+  id: string;
+  type: MasteringProcessorType;
+  name: string;
+  enabled: boolean;
+  params: Record<string, any>;
+}
+
+export interface MasteringSession {
+  processors: MasteringProcessorConfig[];
+  bypassAll: boolean;
+  targetLufs: number; // -14 for streaming, -9 for club, etc.
+  referenceTrackAssetId?: string;
+  referenceGainDb: number;
+  matchLoudness: boolean;
+  outputCeiling: number; // dBFS (e.g. -0.1)
+  ditherType: 'none' | 'tpdf';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -247,12 +289,20 @@ export interface Project {
   loopEndStep?: number;
   loopEnabled?: boolean;
   theme?: ThemeMode;
+  masteringSession?: MasteringSession;
   createdAt: number;
   updatedAt: number;
 }
 
 export type PlaybackMode = 'song' | 'pattern';
-export type ActiveTab = 'playlist' | 'pianoroll' | 'channelrack' | 'mixer' | 'performance' | 'dj';
+export type ActiveTab =
+  | 'playlist'
+  | 'pianoroll'
+  | 'channelrack'
+  | 'mixer'
+  | 'performance'
+  | 'dj'
+  | 'mastering';
 
 export type ScaleKey = 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F' | 'F#' | 'G' | 'G#' | 'A' | 'A#' | 'B';
 export type ScaleType =

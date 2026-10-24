@@ -1,13 +1,23 @@
 /**
  * BeatFlow Studio - PCM WAV Audio Encoder
- * Encodes AudioBuffer into a pristine 16-bit PCM Stereo RIFF WAV file Blob
+ * Encodes AudioBuffer into 16-bit PCM, 24-bit PCM, or 32-bit Float Stereo RIFF WAV file Blob
+ * with optional TPDF (Triangular Probability Density Function) dithering.
  */
 
-export function audioBufferToWav(buffer: AudioBuffer, opt?: { float32?: boolean }): Blob {
+export interface WavEncodingOptions {
+  bitDepth?: 16 | 24 | 32;
+  dither?: 'none' | 'tpdf';
+  float32?: boolean;
+}
+
+export function audioBufferToWav(
+  buffer: AudioBuffer,
+  opt?: WavEncodingOptions
+): Blob {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
-  const format = opt?.float32 ? 3 : 1; // 3 = IEEE Float, 1 = 16-bit PCM
-  const bitDepth = format === 3 ? 32 : 16;
+  const bitDepth = opt?.bitDepth || (opt?.float32 ? 32 : 16);
+  const format = bitDepth === 32 ? 3 : 1; // 3 = IEEE Float, 1 = PCM
 
   let result: Float32Array;
   if (numChannels === 2) {
@@ -16,7 +26,7 @@ export function audioBufferToWav(buffer: AudioBuffer, opt?: { float32?: boolean 
     result = buffer.getChannelData(0);
   }
 
-  return encodeWAV(result, format, sampleRate, numChannels, bitDepth);
+  return encodeWAV(result, format, sampleRate, numChannels, bitDepth, opt?.dither || 'none');
 }
 
 function interleave(inputL: Float32Array, inputR: Float32Array): Float32Array {
@@ -39,7 +49,8 @@ function encodeWAV(
   format: number,
   sampleRate: number,
   numChannels: number,
-  bitDepth: number
+  bitDepth: number,
+  dither: 'none' | 'tpdf'
 ): Blob {
   const bytesPerSample = bitDepth / 8;
   const blockAlign = numChannels * bytesPerSample;
@@ -73,11 +84,11 @@ function encodeWAV(
   /* data chunk length */
   view.setUint32(40, samples.length * bytesPerSample, true);
 
-  if (format === 1) {
-    // 16-bit PCM
-    floatTo16BitPCM(view, 44, samples);
+  if (bitDepth === 16) {
+    floatTo16BitPCM(view, 44, samples, dither === 'tpdf');
+  } else if (bitDepth === 24) {
+    floatTo24BitPCM(view, 44, samples, dither === 'tpdf');
   } else {
-    // 32-bit Float
     writeFloat32(view, 44, samples);
   }
 
@@ -90,10 +101,43 @@ function writeFloat32(output: DataView, offset: number, input: Float32Array): vo
   }
 }
 
-function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array): void {
+function floatTo16BitPCM(
+  output: DataView,
+  offset: number,
+  input: Float32Array,
+  useDither: boolean
+): void {
   for (let i = 0; i < input.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    let s = input[i];
+    if (useDither) {
+      // TPDF: Triangular Probability Density Function
+      const r1 = Math.random() - 0.5;
+      const r2 = Math.random() - 0.5;
+      s += (r1 + r2) / 32768;
+    }
+    const clamped = Math.max(-1, Math.min(1, s));
+    output.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+  }
+}
+
+function floatTo24BitPCM(
+  output: DataView,
+  offset: number,
+  input: Float32Array,
+  useDither: boolean
+): void {
+  for (let i = 0; i < input.length; i++, offset += 3) {
+    let s = input[i];
+    if (useDither) {
+      const r1 = Math.random() - 0.5;
+      const r2 = Math.random() - 0.5;
+      s += (r1 + r2) / 8388608;
+    }
+    const clamped = Math.max(-1, Math.min(1, s));
+    const val = clamped < 0 ? Math.floor(clamped * 0x800000) : Math.floor(clamped * 0x7fffff);
+    output.setUint8(offset, val & 0xff);
+    output.setUint8(offset + 1, (val >> 8) & 0xff);
+    output.setUint8(offset + 2, (val >> 16) & 0xff);
   }
 }
 

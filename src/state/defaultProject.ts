@@ -408,5 +408,50 @@ export function createDefaultProject(): Project {
     mixerChannels,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    masteringSession: {
+      processors: [
+        {
+          id: 'm_eq',
+          type: 'mastering_eq',
+          name: 'Linear Mastering EQ',
+          enabled: true,
+          params: { hpf: 30, lowGain: 0.5, mid1Gain: -0.5, mid1Freq: 450, mid2Gain: 0.8, mid2Freq: 3200, highGain: 1.0, airGain: 1.5 },
+        },
+        {
+          id: 'm_mb',
+          type: 'multiband_dynamics',
+          name: '3-Band Multiband Dynamics',
+          enabled: true,
+          params: { lowThresh: -18, lowRatio: 2.5, lowGain: 0.5, midThresh: -16, midRatio: 2.0, midGain: 0, highThresh: -14, highRatio: 1.8, highGain: 0.8 },
+        },
+        {
+          id: 'm_imager',
+          type: 'stereo_imager',
+          name: 'Mid-Side Stereo Imager',
+          enabled: true,
+          params: { width: 1.25, bassMono: 120 },
+        },
+        {
+          id: 'm_sat',
+          type: 'analog_saturation',
+          name: 'Analog Tape Warmth',
+          enabled: true,
+          params: { drive: 0.15, tone: 15000 },
+        },
+        {
+          id: 'm_lim',
+          type: 'brickwall_limiter',
+          name: 'Brickwall True-Peak Limiter',
+          enabled: true,
+          params: { threshold: -3.5, release: 0.08, ceiling: -0.2 },
+        },
+      ],
+      bypassAll: false,
+      targetLufs: -14,
+      referenceGainDb: 0,
+      matchLoudness: false,
+      outputCeiling: -0.2,
+      ditherType: 'tpdf',
+    },
   };
 }

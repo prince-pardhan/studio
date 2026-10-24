@@ -17,7 +17,7 @@ const SHORTCUTS = [
   { key: 'Ctrl / ⌘ + Shift + Z', desc: 'Redo previously undone action' },
   { key: 'Ctrl / ⌘ + D', desc: 'Duplicate selected clip' },
   { key: 'Delete / Backspace', desc: 'Delete selected clip or note' },
-  { key: '1, 2, 3, 4', desc: 'Switch view (Playlist, Channel Rack, Piano Roll, Mixer)' },
+  { key: '1 - 7', desc: 'Switch view (Playlist, Channel Rack, Piano Roll, Mixer, Performance, DJ, Mastering)' },
   { key: 'Esc', desc: 'Close open dialogs or deselect items' },
 ];
 

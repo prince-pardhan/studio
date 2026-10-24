@@ -1,6 +1,10 @@
 {
   "name": "BeatFlow Studio",
   "description": "Professional browser-based digital audio workstation (DAW) inspired by FL Studio with real-time synthesis, step sequencer, piano roll, multitrack arrangement, mixer, recording, and WAV/MIDI export.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
