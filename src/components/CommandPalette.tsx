@@ -15,6 +15,11 @@ import {
   Settings,
   Grid,
   Disc,
+  Plus,
+  FolderOpen,
+  Save,
+  Copy,
+  Mic,
 } from 'lucide-react';
 import { ActiveTab, ThemeMode } from '../types/project';
 
@@ -39,6 +44,12 @@ interface CommandPaletteProps {
   onOpenShortcuts: () => void;
   onSetTheme: (t: ThemeMode) => void;
   onToggleMetronome: () => void;
+  onOpenNewProject?: () => void;
+  onOpenProjectDashboard?: () => void;
+  onSaveProject?: () => void;
+  onDuplicateProject?: () => void;
+  onOpenVoiceStudio?: () => void;
+  onOpenAutoMix?: () => void;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -53,11 +64,23 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenShortcuts,
   onSetTheme,
   onToggleMetronome,
+  onOpenNewProject,
+  onOpenProjectDashboard,
+  onSaveProject,
+  onDuplicateProject,
+  onOpenVoiceStudio,
+  onOpenAutoMix,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const commands: CommandItem[] = [
+    { id: 'c_voice_studio', title: 'Open Voice & Audio Studio (Record/Upload)', category: 'Vocal & Audio', icon: <Mic className="w-3.5 h-3.5 text-pink-400" />, action: () => onOpenVoiceStudio?.() },
+    { id: 'c_auto_mix', title: 'Auto Mix Vocal DSP Analyzer & Balance', category: 'Vocal & Audio', icon: <Sliders className="w-3.5 h-3.5 text-purple-400" />, action: () => onOpenAutoMix?.() },
+    { id: 'c_new', title: 'New Project Creation Wizard', category: 'Project', icon: <Plus className="w-3.5 h-3.5 text-orange-400" />, action: () => onOpenNewProject?.(), shortcut: 'Ctrl+N' },
+    { id: 'c_open_lib', title: 'Open Project Library & Dashboard', category: 'Project', icon: <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />, action: () => onOpenProjectDashboard?.(), shortcut: 'Ctrl+O' },
+    { id: 'c_save', title: 'Save Project to IndexedDB', category: 'Project', icon: <Save className="w-3.5 h-3.5 text-emerald-400" />, action: () => onSaveProject?.(), shortcut: 'Ctrl+S' },
+    { id: 'c_dup', title: 'Duplicate Project / Save As', category: 'Project', icon: <Copy className="w-3.5 h-3.5 text-purple-400" />, action: () => onDuplicateProject?.() },
     { id: 'c_play', title: 'Play / Pause Transport', category: 'Playback', icon: <Play className="w-3.5 h-3.5 text-amber-400" />, action: onTogglePlay, shortcut: 'Space' },
     { id: 'c_metro', title: 'Toggle Metronome Click', category: 'Playback', icon: <Play className="w-3.5 h-3.5 text-orange-400" />, action: onToggleMetronome },
     { id: 'c_arr', title: 'Switch to Arrangement Playlist', category: 'Navigation', icon: <Layers className="w-3.5 h-3.5 text-cyan-400" />, action: () => onSetActiveTab('playlist'), shortcut: '1' },
@@ -69,7 +92,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     { id: 'c_mastering', title: 'Open Professional Mastering Suite', category: 'Navigation', icon: <Sliders className="w-3.5 h-3.5 text-purple-400" />, action: () => onSetActiveTab('mastering'), shortcut: '7' },
     { id: 'c_ai', title: 'Open AI Music Assistant', category: 'AI & Tools', icon: <Sparkles className="w-3.5 h-3.5 text-purple-400" />, action: onOpenAI },
     { id: 'c_circle', title: 'Open Circle of Fifths Theory Wheel', category: 'AI & Tools', icon: <Circle className="w-3.5 h-3.5 text-orange-400" />, action: onOpenCircleOfFifths },
-    { id: 'c_export', title: 'Export Audio to WAV / MIDI', category: 'Project', icon: <Download className="w-3.5 h-3.5 text-emerald-400" />, action: onOpenExport },
+    { id: 'c_export', title: 'Export Audio to WAV / MIDI', category: 'Project', icon: <Download className="w-3.5 h-3.5 text-emerald-400" />, action: onOpenExport, shortcut: 'Ctrl+E' },
     { id: 'c_settings', title: 'Audio Engine & Buffer Settings', category: 'Project', icon: <Settings className="w-3.5 h-3.5 text-zinc-400" />, action: onOpenAudioSettings },
     { id: 'c_theme_dark', title: 'Theme: Studio Dark', category: 'Appearance', icon: <Settings className="w-3.5 h-3.5 text-zinc-400" />, action: () => onSetTheme('dark') },
     { id: 'c_theme_cyber', title: 'Theme: Cyberpunk Neon', category: 'Appearance', icon: <Settings className="w-3.5 h-3.5 text-cyan-400" />, action: () => onSetTheme('cyber') },

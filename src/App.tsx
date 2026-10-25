@@ -25,14 +25,26 @@ import { TemplatesModal } from './components/TemplatesModal';
 import { AudioSettingsModal } from './components/AudioSettingsModal';
 import { WaveformEditorModal } from './components/WaveformEditorModal';
 import { MasteringSuite } from './components/MasteringSuite';
+import { NewProjectModal } from './components/NewProjectModal';
+import { ProjectDashboardModal } from './components/ProjectDashboardModal';
+import { EditProjectModal } from './components/EditProjectModal';
+import { VoiceStudioModal } from './components/VoiceStudioModal';
+import { VocalEditorModal } from './components/VocalEditorModal';
+import { AutoMixModal } from './components/AutoMixModal';
+import { SongWorkflowBar } from './components/SongWorkflowBar';
+import { ProjectStorage } from './storage/ProjectStorage';
 import { MidiService } from './midi/MidiService';
-import { AudioAsset, ArrangementClip, Note } from './types/project';
+import { AudioAsset, ArrangementClip, Note, MixerChannel } from './types/project';
 
 export default function App() {
   const store = useProjectStore();
   const [isBrowserOpen, setIsBrowserOpen] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isRecordOpen, setIsRecordOpen] = useState(false);
+  const [isVoiceStudioOpen, setIsVoiceStudioOpen] = useState(false);
+  const [isVocalEditorOpen, setIsVocalEditorOpen] = useState(false);
+  const [isAutoMixOpen, setIsAutoMixOpen] = useState(false);
+  const [activeVocalAsset, setActiveVocalAsset] = useState<AudioAsset | null>(null);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
   const [isCircleOfFifthsOpen, setIsCircleOfFifthsOpen] = useState(false);
@@ -40,8 +52,12 @@ export default function App() {
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
   const [isAudioSettingsOpen, setIsAudioSettingsOpen] = useState(false);
   const [isWaveformEditorOpen, setIsWaveformEditorOpen] = useState(false);
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const [isProjectDashboardOpen, setIsProjectDashboardOpen] = useState(false);
+  const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [activeEditingAsset, setActiveEditingAsset] = useState<AudioAsset | null>(null);
   const [saveToast, setSaveToast] = useState(false);
+  const [recoveryToast, setRecoveryToast] = useState(false);
   const midiServiceRef = useRef<MidiService | null>(null);
 
   // Initialize Web MIDI API listener for hardware MIDI keyboard
@@ -92,6 +108,27 @@ export default function App() {
         return;
       }
 
+      // Ctrl/Cmd + N: New Project
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setIsNewProjectOpen(true);
+        return;
+      }
+
+      // Ctrl/Cmd + O: Open Project Library
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setIsProjectDashboardOpen(true);
+        return;
+      }
+
+      // Ctrl/Cmd + E: Export Audio
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setIsExportOpen(true);
+        return;
+      }
+
       // Space: Play / Pause
       if (e.code === 'Space') {
         e.preventDefault();
@@ -109,7 +146,7 @@ export default function App() {
       // Ctrl/Cmd + S: Save
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        triggerSaveToast();
+        store.saveProjectManual().then(() => triggerSaveToast());
         return;
       }
 
@@ -161,6 +198,9 @@ export default function App() {
       if (e.key === 'Escape') {
         setIsExportOpen(false);
         setIsRecordOpen(false);
+        setIsVoiceStudioOpen(false);
+        setIsVocalEditorOpen(false);
+        setIsAutoMixOpen(false);
         setIsShortcutsOpen(false);
         setIsAIAssistantOpen(false);
         setIsCircleOfFifthsOpen(false);
@@ -168,6 +208,9 @@ export default function App() {
         setIsTemplatesOpen(false);
         setIsAudioSettingsOpen(false);
         setIsWaveformEditorOpen(false);
+        setIsNewProjectOpen(false);
+        setIsProjectDashboardOpen(false);
+        setIsEditProjectOpen(false);
         store.setSelectedClipId(null);
       }
     };
@@ -249,6 +292,16 @@ export default function App() {
     store.setActiveTab('pianoroll');
   };
 
+  const handlePreviewSong = () => {
+    store.stopPlayback();
+    store.audioEngine.seekToStep(0);
+    store.setActiveTab('playlist');
+    store.switchPlaybackMode('song');
+    setTimeout(() => {
+      store.togglePlay();
+    }, 100);
+  };
+
   // Theme styling wrapper
   const themeClass =
     store.theme === 'cyber'
@@ -275,11 +328,31 @@ export default function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onOpenTemplates={() => setIsTemplatesOpen(true)}
         onOpenAudioSettings={() => setIsAudioSettingsOpen(true)}
-        onNewProject={store.resetProject}
-        onLoadProject={store.loadProject}
-        onSaveNotification={triggerSaveToast}
+        onOpenNewProject={() => setIsNewProjectOpen(true)}
+        onOpenProjectDashboard={() => setIsProjectDashboardOpen(true)}
+        onOpenEditProject={() => setIsEditProjectOpen(true)}
+        onSaveProject={async () => {
+          await store.saveProjectManual();
+          triggerSaveToast();
+        }}
+        onDuplicateProject={async () => {
+          await store.duplicateCurrentProject();
+          triggerSaveToast();
+        }}
+        saveStatus={store.saveStatus}
+        hasUnsavedChanges={store.hasUnsavedChanges}
         theme={store.theme}
         onSetTheme={store.setTheme}
+        onImportProject={(file) => {
+          ProjectStorage.importProjectPackage(file)
+            .then((p) => {
+              store.switchProject(p);
+              triggerSaveToast();
+            })
+            .catch((err) => alert(err.message));
+        }}
+        onOpenVoiceStudio={() => setIsVoiceStudioOpen(true)}
+        onOpenAutoMix={() => setIsAutoMixOpen(true)}
       />
 
       {/* Transport Bar */}
@@ -297,7 +370,37 @@ export default function App() {
         onSetSwing={store.setSwing}
         onToggleMetronome={store.toggleMetronome}
         onSwitchMode={store.switchPlaybackMode}
-        onOpenRecord={() => setIsRecordOpen(true)}
+        onOpenRecord={() => setIsVoiceStudioOpen(true)}
+      />
+
+      {/* 8-Step Voice-to-Full-Song Guided Production Bar (Phase 14) */}
+      <SongWorkflowBar
+        project={store.project}
+        onOpenVoiceStudio={() => setIsVoiceStudioOpen(true)}
+        onOpenTemplates={() => setIsTemplatesOpen(true)}
+        onOpenVocalEditor={() => {
+          if (!activeVocalAsset) {
+            const firstAudio = store.project.clips.find(
+              (c) => c.type === 'audio' && c.audioAssetId
+            );
+            if (firstAudio) {
+              setActiveVocalAsset({
+                id: firstAudio.audioAssetId!,
+                name: firstAudio.name,
+                duration: 8.0,
+                sampleRate: 44100,
+                channels: 2,
+                createdAt: Date.now(),
+              });
+            }
+          }
+          setIsVocalEditorOpen(true);
+        }}
+        onOpenAutoMix={() => setIsAutoMixOpen(true)}
+        onOpenExport={() => setIsExportOpen(true)}
+        onSetActiveTab={store.setActiveTab}
+        onPreviewSong={handlePreviewSong}
+        hasAudioClip={store.project.clips.some((c) => c.type === 'audio')}
       />
 
       {/* Main Workspace Body */}
@@ -439,7 +542,69 @@ export default function App() {
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onSetTheme={store.setTheme}
         onToggleMetronome={store.toggleMetronome}
+        onOpenNewProject={() => setIsNewProjectOpen(true)}
+        onOpenProjectDashboard={() => setIsProjectDashboardOpen(true)}
+        onSaveProject={async () => {
+          await store.saveProjectManual();
+          triggerSaveToast();
+        }}
+        onDuplicateProject={async () => {
+          await store.duplicateCurrentProject();
+          triggerSaveToast();
+        }}
+        onOpenVoiceStudio={() => setIsVoiceStudioOpen(true)}
+        onOpenAutoMix={() => setIsAutoMixOpen(true)}
       />
+
+      {/* New Project Creation Dialog */}
+      <NewProjectModal
+        isOpen={isNewProjectOpen}
+        onClose={() => setIsNewProjectOpen(false)}
+        onCreateProject={(opts) => {
+          store.createNewProject(opts);
+          triggerSaveToast();
+        }}
+      />
+
+      {/* Project Library & Management Dashboard */}
+      <ProjectDashboardModal
+        isOpen={isProjectDashboardOpen}
+        currentProjectId={store.project.id}
+        onClose={() => setIsProjectDashboardOpen(false)}
+        onOpenProject={(p) => {
+          store.switchProject(p);
+          triggerSaveToast();
+        }}
+        onOpenNewProjectModal={() => setIsNewProjectOpen(true)}
+        onRecoverSnapshot={async () => {
+          const rec = await store.recoverLatestSnapshot();
+          if (rec) {
+            setRecoveryToast(true);
+            setTimeout(() => setRecoveryToast(false), 3000);
+          } else {
+            alert('No autosaved recovery snapshot available for this session.');
+          }
+        }}
+      />
+
+      {/* Project Metadata & Settings Editor */}
+      <EditProjectModal
+        isOpen={isEditProjectOpen}
+        project={store.project}
+        onClose={() => setIsEditProjectOpen(false)}
+        onSave={(id, updates) => {
+          store.editProjectMetadata(updates);
+          triggerSaveToast();
+        }}
+      />
+
+      {/* Recovery Notification Toast */}
+      {recoveryToast && (
+        <div className="fixed bottom-5 left-5 z-50 bg-[#1e202c] border border-amber-500/60 shadow-xl px-4 py-2.5 rounded-lg flex items-center gap-2 text-xs text-white">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span>Restored session from latest valid autosave snapshot!</span>
+        </div>
+      )}
 
       {/* Project Starter Templates Modal */}
       <TemplatesModal
@@ -478,6 +643,53 @@ export default function App() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         project={store.project}
+      />
+
+      {/* Voice & Audio Studio Modal (Phase 14) */}
+      <VoiceStudioModal
+        isOpen={isVoiceStudioOpen}
+        onClose={() => setIsVoiceStudioOpen(false)}
+        onAddRecordedClip={(clip, asset, buffer) => {
+          handleAddRecordedClip(clip, asset, buffer);
+          setActiveVocalAsset(asset);
+          triggerSaveToast();
+        }}
+        onOpenVocalEditor={(asset) => {
+          setActiveVocalAsset(asset);
+          setIsVocalEditorOpen(true);
+        }}
+        targetTrackIndex={4}
+        currentStep={store.currentStep}
+        bpm={store.project.bpm}
+      />
+
+      {/* Vocal Editor & Processor Modal (Phase 14) */}
+      <VocalEditorModal
+        isOpen={isVocalEditorOpen}
+        onClose={() => setIsVocalEditorOpen(false)}
+        asset={activeVocalAsset || activeEditingAsset}
+        bpm={store.project.bpm}
+        onPlaceOnTimeline={(clip) => {
+          store.addClip(clip);
+          store.setActiveTab('playlist');
+          triggerSaveToast();
+        }}
+        onUpdateAsset={(updated) => {
+          setActiveVocalAsset(updated);
+          triggerSaveToast();
+        }}
+      />
+
+      {/* Auto Mix Vocal DSP Analyzer Modal (Phase 14) */}
+      <AutoMixModal
+        isOpen={isAutoMixOpen}
+        onClose={() => setIsAutoMixOpen(false)}
+        project={store.project}
+        vocalAsset={activeVocalAsset}
+        onApplyMixerChannel={(updated) => {
+          store.updateMixerChannel(updated.id, updated);
+          triggerSaveToast();
+        }}
       />
 
       {/* Keyboard Shortcuts Reference Modal */}

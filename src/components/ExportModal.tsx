@@ -30,7 +30,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   onClose,
   project,
 }) => {
-  const [exportType, setExportType] = useState<'master_wav' | 'stems_wav' | 'midi'>('master_wav');
+  const [exportType, setExportType] = useState<
+    'master_wav' | 'vocal_stem_wav' | 'instrumental_wav' | 'stems_wav' | 'midi'
+  >('master_wav');
   const [bitDepth, setBitDepth] = useState<16 | 24 | 32>(24);
   const [sampleRate, setSampleRate] = useState<44100 | 48000 | 96000>(44100);
   const [dither, setDither] = useState<'none' | 'tpdf'>('tpdf');
@@ -64,6 +66,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             dither: bitDepth === 32 ? 'none' : dither,
             tailSec,
             applyMastering,
+            stemFilter: 'all',
           }
         );
 
@@ -72,6 +75,50 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           `${project.name.toLowerCase().replace(/\s+/g, '_')}_master_${bitDepth}bit_${sampleRate}Hz.wav`
         );
 
+        setPeakReport({ maxPeak: result.maxPeak, isClipping: result.isClipping });
+        setIsDone(true);
+      } else if (exportType === 'vocal_stem_wav') {
+        const result = await AudioExporter.renderProjectToWav(
+          project,
+          audioCache,
+          (p) => setProgress(p),
+          undefined,
+          {
+            bitDepth,
+            sampleRate,
+            dither: bitDepth === 32 ? 'none' : dither,
+            tailSec,
+            applyMastering: false,
+            stemFilter: 'vocals_only',
+          }
+        );
+
+        AudioExporter.downloadWav(
+          result.blob,
+          `${project.name.toLowerCase().replace(/\s+/g, '_')}_vocal_stem.wav`
+        );
+        setPeakReport({ maxPeak: result.maxPeak, isClipping: result.isClipping });
+        setIsDone(true);
+      } else if (exportType === 'instrumental_wav') {
+        const result = await AudioExporter.renderProjectToWav(
+          project,
+          audioCache,
+          (p) => setProgress(p),
+          undefined,
+          {
+            bitDepth,
+            sampleRate,
+            dither: bitDepth === 32 ? 'none' : dither,
+            tailSec,
+            applyMastering,
+            stemFilter: 'instrumental_only',
+          }
+        );
+
+        AudioExporter.downloadWav(
+          result.blob,
+          `${project.name.toLowerCase().replace(/\s+/g, '_')}_instrumental_stem.wav`
+        );
         setPeakReport({ maxPeak: result.maxPeak, isClipping: result.isClipping });
         setIsDone(true);
       } else if (exportType === 'stems_wav') {
@@ -92,7 +139,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               sampleRate,
               dither: bitDepth === 32 ? 'none' : dither,
               tailSec,
-              applyMastering: false, // Don't apply master limiter to individual stems
+              applyMastering: false,
             }
           );
 
@@ -103,7 +150,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         }
         setIsDone(true);
       } else if (exportType === 'midi') {
-        // Export active pattern to MIDI
         const activePat =
           project.patterns.find((p) => p.id === project.activePatternId) || project.patterns[0];
         MidiService.exportPatternToMidi(
@@ -123,12 +169,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#181922] border border-[#2c2f40] rounded-xl shadow-2xl p-6 select-none flex flex-col">
+      <div className="w-full max-w-xl bg-[#181922] border border-[#2c2f40] rounded-xl shadow-2xl p-6 select-none flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[#292c3c]">
           <div className="flex items-center gap-2">
             <Download className="w-5 h-5 text-orange-500" />
-            <h3 className="text-sm font-bold text-white">Export Project Audio</h3>
+            <h3 className="text-sm font-bold text-white">Export Project Audio & Stems</h3>
           </div>
           <button
             onClick={onClose}
@@ -143,13 +189,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         <div className="my-4 space-y-4">
           <div>
             <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">
-              Render Format
+              Render Output Target
             </label>
 
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <button
                 onClick={() => setExportType('master_wav')}
-                className={`p-3 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
                   exportType === 'master_wav'
                     ? 'bg-orange-500/15 border-orange-500 text-white'
                     : 'bg-[#121319] border-[#292c3c] text-zinc-400 hover:text-zinc-200'
@@ -161,27 +207,53 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </button>
 
               <button
+                onClick={() => setExportType('vocal_stem_wav')}
+                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                  exportType === 'vocal_stem_wav'
+                    ? 'bg-pink-500/15 border-pink-500 text-white'
+                    : 'bg-[#121319] border-[#292c3c] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Disc className="w-4 h-4 text-pink-400" />
+                <span className="text-xs font-bold text-white">Vocal Stem</span>
+                <span className="text-[10px] text-zinc-500">Isolated vocal audio</span>
+              </button>
+
+              <button
+                onClick={() => setExportType('instrumental_wav')}
+                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                  exportType === 'instrumental_wav'
+                    ? 'bg-purple-500/15 border-purple-500 text-white'
+                    : 'bg-[#121319] border-[#292c3c] text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Disc className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-bold text-white">Instrumental</span>
+                <span className="text-[10px] text-zinc-500">Beats & synths backing</span>
+              </button>
+
+              <button
                 onClick={() => setExportType('stems_wav')}
-                className={`p-3 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
                   exportType === 'stems_wav'
-                    ? 'bg-orange-500/15 border-orange-500 text-white'
+                    ? 'bg-cyan-500/15 border-cyan-500 text-white'
                     : 'bg-[#121319] border-[#292c3c] text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 <Disc className="w-4 h-4 text-cyan-400" />
-                <span className="text-xs font-bold text-white">Track Stems</span>
+                <span className="text-xs font-bold text-white">All Track Stems</span>
                 <span className="text-[10px] text-zinc-500">Individual stems to WAV</span>
               </button>
 
               <button
                 onClick={() => setExportType('midi')}
-                className={`p-3 rounded-lg border text-left flex flex-col gap-1 transition-all ${
+                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
                   exportType === 'midi'
-                    ? 'bg-orange-500/15 border-orange-500 text-white'
+                    ? 'bg-amber-500/15 border-amber-500 text-white'
                     : 'bg-[#121319] border-[#292c3c] text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Music className="w-4 h-4 text-purple-400" />
+                <Music className="w-4 h-4 text-amber-400" />
                 <span className="text-xs font-bold text-white">MIDI File</span>
                 <span className="text-[10px] text-zinc-500">Standard MIDI (.mid)</span>
               </button>

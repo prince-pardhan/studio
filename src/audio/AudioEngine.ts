@@ -363,7 +363,14 @@ export class AudioEngine {
             this.playPatternAtStep(pattern, patternStep, time);
           }
         } else if (clip.type === 'audio' && clip.audioAssetId && relativeStep === 0) {
-          this.playAudioClip(clip.audioAssetId, time, track.volume * (clip.gain ?? 1.0));
+          const isVocal =
+            track.name.toLowerCase().includes('vocal') ||
+            track.name.toLowerCase().includes('voice') ||
+            track.name.toLowerCase().includes('mic') ||
+            clip.name.toLowerCase().includes('vocal') ||
+            clip.trackIndex === 4;
+          const targetChannel = isVocal ? 8 : 1;
+          this.playAudioClip(clip.audioAssetId, time, track.volume * (clip.gain ?? 1.0), targetChannel);
         }
       }
     }
@@ -384,9 +391,14 @@ export class AudioEngine {
     osc.stop(time + 0.05);
   }
 
-  private playAudioClip(assetId: string, time: number, volume: number): void {
+  public playAudioClip(
+    assetId: string,
+    time: number,
+    volume: number,
+    mixerChannel = 1
+  ): AudioBufferSourceNode | null {
     const buffer = this.audioBufferCache.get(assetId);
-    if (!buffer) return;
+    if (!buffer) return null;
 
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
@@ -394,8 +406,9 @@ export class AudioEngine {
     gain.gain.setValueAtTime(volume, time);
 
     source.connect(gain);
-    gain.connect(this.mixer.getChannelInput(1));
+    gain.connect(this.mixer.getChannelInput(mixerChannel));
     source.start(time);
+    return source;
   }
 
   cacheAudioBuffer(assetId: string, buffer: AudioBuffer): void {

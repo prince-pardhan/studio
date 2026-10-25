@@ -1,13 +1,14 @@
 /**
- * BeatFlow Studio - Offline Audio Exporter
+ * BeatFlow Studio - Offline Audio Exporter (Phase 14)
  * Renders multitrack arrangements to 16-bit, 24-bit, or 32-bit float stereo WAV
- * with sample-rate selection, TPDF dithering, customizable reverb tails, and mastering chain processing.
+ * with sample-rate selection, TPDF dithering, customizable reverb tails, mastering chain processing,
+ * and stems rendering (Master, Vocals, Instrumental).
  */
 import { Project } from '../types/project';
 import { DrumSynthEngine } from './DrumSynthEngine';
 import { InstrumentEngine } from './InstrumentEngine';
 import { MixerEngine } from './MixerEngine';
-import { audioBufferToWav, WavEncodingOptions } from './WavEncoder';
+import { audioBufferToWav } from './WavEncoder';
 
 export interface ExportProgress {
   progress: number; // 0 to 1
@@ -20,6 +21,7 @@ export interface RenderOptions {
   dither?: 'none' | 'tpdf';
   tailSec?: number;
   applyMastering?: boolean;
+  stemFilter?: 'all' | 'vocals_only' | 'instrumental_only';
 }
 
 export class AudioExporter {
@@ -34,11 +36,14 @@ export class AudioExporter {
     const secondsPer16th = (60.0 / bpm) / 4.0;
     const sampleRate = options?.sampleRate || 44100;
     const tailSec = options?.tailSec ?? 2.0;
+    const stemFilter = options?.stemFilter || 'all';
 
     // Calculate total duration in steps
     let maxStep = 64;
     for (const clip of project.clips) {
       if (selectedTrackIndex !== undefined && clip.trackIndex !== selectedTrackIndex) continue;
+      if (stemFilter === 'vocals_only' && clip.type !== 'audio') continue;
+      if (stemFilter === 'instrumental_only' && clip.type === 'audio') continue;
       const end = clip.startStep + clip.durationSteps;
       if (end > maxStep) maxStep = end;
     }
@@ -54,8 +59,8 @@ export class AudioExporter {
     const drumSynth = new DrumSynthEngine(offlineCtx);
     const instrumentEngine = new InstrumentEngine(offlineCtx);
 
-    // Apply mastering session if requested
-    if (options?.applyMastering !== false && project.masteringSession) {
+    // Apply mastering session if requested (master only, not for individual isolated stems)
+    if (options?.applyMastering !== false && project.masteringSession && stemFilter === 'all') {
       mixer.mastering.applySessionConfig(project.masteringSession);
     }
 
@@ -77,6 +82,10 @@ export class AudioExporter {
       const track = project.tracks[clip.trackIndex];
       if (!track || track.mute) continue;
       if (hasSoloTrack && !track.solo) continue;
+
+      // Filter stems if requested
+      if (stemFilter === 'vocals_only' && clip.type !== 'audio') continue;
+      if (stemFilter === 'instrumental_only' && clip.type === 'audio') continue;
 
       if (clip.type === 'pattern' && clip.patternId) {
         const pattern = project.patterns.find((p) => p.id === clip.patternId);
@@ -125,13 +134,44 @@ export class AudioExporter {
         const buffer = audioBufferCache.get(clip.audioAssetId);
         if (buffer) {
           const startTime = clip.startStep * secondsPer16th;
+          const clipDurationSec = clip.durationSteps * secondsPer16th;
+          const targetVol = track.volume * (clip.gain ?? 1.0);
+
           const source = offlineCtx.createBufferSource();
           source.buffer = buffer;
-          const gain = offlineCtx.createGain();
-          gain.gain.setValueAtTime(track.volume, startTime);
-          source.connect(gain);
-          gain.connect(mixer.getChannelInput(1));
-          source.start(startTime);
+          const gainNode = offlineCtx.createGain();
+
+          // Apply smooth fade-in
+          if (clip.fadeInSteps && clip.fadeInSteps > 0) {
+            const fadeInSec = Math.min(clipDurationSec * 0.5, clip.fadeInSteps * secondsPer16th);
+            gainNode.gain.setValueAtTime(0.0001, startTime);
+            gainNode.gain.linearRampToValueAtTime(targetVol, startTime + fadeInSec);
+          } else {
+            gainNode.gain.setValueAtTime(targetVol, startTime);
+          }
+
+          // Apply smooth fade-out
+          if (clip.fadeOutSteps && clip.fadeOutSteps > 0) {
+            const fadeOutSec = Math.min(clipDurationSec * 0.5, clip.fadeOutSteps * secondsPer16th);
+            const fadeOutStart = Math.max(startTime, startTime + clipDurationSec - fadeOutSec);
+            gainNode.gain.setValueAtTime(targetVol, fadeOutStart);
+            gainNode.gain.linearRampToValueAtTime(0.0001, startTime + clipDurationSec);
+          }
+
+          source.connect(gainNode);
+
+          // Route to vocal mixer channel (Channel 8) if vocal/mic track or channel 8, otherwise Channel 1
+          const isVocalTrack =
+            track.name.toLowerCase().includes('vocal') ||
+            track.name.toLowerCase().includes('voice') ||
+            track.name.toLowerCase().includes('mic') ||
+            clip.name.toLowerCase().includes('vocal') ||
+            clip.trackIndex === 4;
+
+          const mixerDest = mixer.getChannelInput(isVocalTrack ? 8 : 1);
+          gainNode.connect(mixerDest);
+
+          source.start(startTime, 0, clipDurationSec);
         }
       }
     }

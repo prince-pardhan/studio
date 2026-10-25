@@ -25,6 +25,8 @@ import {
   EffectType,
   MasteringSession,
   MasteringProcessorConfig,
+  NewProjectOptions,
+  Genre,
 } from '../types/project';
 import { createDefaultProject } from './defaultProject';
 import { ProjectStorage } from '../storage/ProjectStorage';
@@ -49,11 +51,27 @@ export function useProjectStore() {
   const [scaleType, setScaleType] = useState<ScaleType>('minor');
   const [ghostNotesEnabled, setGhostNotesEnabled] = useState<boolean>(true);
   const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const saveTimeoutRef = useRef<any>(null);
 
   // Undo / Redo stacks
   const historyRef = useRef<Project[]>([]);
   const futureRef = useRef<Project[]>([]);
   const audioEngine = useRef(AudioEngine.getInstance()).current;
+
+  // Restore active project on mount if available
+  useEffect(() => {
+    const activeId = ProjectStorage.getActiveProjectId();
+    if (activeId) {
+      ProjectStorage.loadProject(activeId).then((stored) => {
+        if (stored) {
+          setProject(stored);
+          audioEngine.setProject(stored);
+        }
+      }).catch(() => {});
+    }
+  }, [audioEngine]);
 
   // Sync project to AudioEngine
   useEffect(() => {
@@ -62,6 +80,18 @@ export function useProjectStore() {
       audioEngine.mixer.mastering.applySessionConfig(project.masteringSession);
     }
   }, [project, audioEngine]);
+
+  // Warn before leaving if unsaved changes exist
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Subscribe to AudioEngine transport playhead
   useEffect(() => {
@@ -80,32 +110,66 @@ export function useProjectStore() {
     futureRef.current = [];
   }, []);
 
+  // Debounced auto-save to IndexedDB with recovery snapshotting
+  const scheduleAutoSave = useCallback((projToSave: Project) => {
+    setHasUnsavedChanges(true);
+    setSaveStatus('saving');
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await ProjectStorage.saveProject(projToSave, true);
+        setSaveStatus('saved');
+        setHasUnsavedChanges(false);
+      } catch {
+        setSaveStatus('error');
+      }
+    }, 600);
+  }, []);
+
+  const saveProjectManual = useCallback(async (): Promise<boolean> => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    setSaveStatus('saving');
+    try {
+      await ProjectStorage.saveProject(project, true);
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+      return true;
+    } catch {
+      setSaveStatus('error');
+      return false;
+    }
+  }, [project]);
+
   const undo = useCallback(() => {
     if (historyRef.current.length === 0) return;
     const prev = historyRef.current.pop()!;
     futureRef.current.push(JSON.parse(JSON.stringify(project)));
     setProject(prev);
-    ProjectStorage.saveProject(prev);
-  }, [project]);
+    scheduleAutoSave(prev);
+  }, [project, scheduleAutoSave]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
     const next = futureRef.current.pop()!;
     historyRef.current.push(JSON.parse(JSON.stringify(project)));
     setProject(next);
-    ProjectStorage.saveProject(next);
-  }, [project]);
+    scheduleAutoSave(next);
+  }, [project, scheduleAutoSave]);
 
   const mutateProject = useCallback(
     (updater: (prev: Project) => Project) => {
       setProject((prev) => {
         pushHistory(prev);
         const updated = updater(prev);
-        ProjectStorage.saveProject(updated);
+        scheduleAutoSave(updated);
         return updated;
       });
     },
-    [pushHistory]
+    [pushHistory, scheduleAutoSave]
   );
 
   // Transport controls
@@ -724,50 +788,101 @@ export function useProjectStore() {
     [mutateProject]
   );
 
-  // Genre Starter Templates
+  // Expanded 15-Genre Starter Templates
   const loadTemplate = useCallback(
-    (genre: 'trap' | 'house' | 'synthwave' | 'lofi' | 'ambient') => {
+    (genre: Genre | 'synthwave' | string) => {
       const fresh = createDefaultProject();
       fresh.name = `${genre.toUpperCase()} Session`;
+      fresh.genre = genre;
+      fresh.bpm = ProjectStorage.getGenreDefaultBpm(genre as any);
 
-      if (genre === 'house') {
-        fresh.bpm = 126;
-        fresh.patterns[0].drumSteps = AlgorithmicMusicGen.generateDrumPattern('house');
-      } else if (genre === 'trap') {
-        fresh.bpm = 140;
-        fresh.patterns[0].drumSteps = AlgorithmicMusicGen.generateDrumPattern('trap');
-      } else if (genre === 'lofi') {
-        fresh.bpm = 85;
-        fresh.patterns[0].drumSteps = AlgorithmicMusicGen.generateDrumPattern('boombap');
-      } else if (genre === 'ambient') {
-        fresh.bpm = 95;
+      const drumPattern = AlgorithmicMusicGen.generateDrumPattern(genre);
+      if (fresh.patterns.length > 0) {
+        fresh.patterns[0].drumSteps = drumPattern;
+        fresh.patterns[0].name = `${genre.toUpperCase()} Pattern`;
       }
 
       pushHistory(project);
       setProject(fresh);
       audioEngine.setProject(fresh);
       ProjectStorage.saveProject(fresh);
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
     },
     [project, pushHistory, audioEngine]
   );
 
-  const loadProject = useCallback(
-    (loaded: Project) => {
+  const createNewProject = useCallback(
+    (options: NewProjectOptions) => {
       pushHistory(project);
-      setProject(loaded);
-      audioEngine.setProject(loaded);
-      ProjectStorage.saveProject(loaded);
+      const fresh = ProjectStorage.createNewProject(options);
+      setProject(fresh);
+      audioEngine.setProject(fresh);
+      ProjectStorage.saveProject(fresh);
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
     },
     [project, pushHistory, audioEngine]
+  );
+
+  const duplicateCurrentProject = useCallback(
+    async (newName?: string): Promise<Project> => {
+      const copy = await ProjectStorage.duplicateProject(project.id, newName);
+      pushHistory(project);
+      setProject(copy);
+      audioEngine.setProject(copy);
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+      return copy;
+    },
+    [project, pushHistory, audioEngine]
+  );
+
+  const editProjectMetadata = useCallback(
+    (updates: Partial<Project>) => {
+      mutateProject((prev) => ({
+        ...prev,
+        ...updates,
+        updatedAt: Date.now(),
+      }));
+    },
+    [mutateProject]
+  );
+
+  const switchProject = useCallback(
+    (newProject: Project) => {
+      pushHistory(project);
+      setProject(newProject);
+      audioEngine.setProject(newProject);
+      ProjectStorage.saveProject(newProject);
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+    },
+    [project, pushHistory, audioEngine]
+  );
+
+  const recoverLatestSnapshot = useCallback(async (): Promise<Project | null> => {
+    const recovered =
+      (await ProjectStorage.recoverLatestSnapshot(project.id)) ||
+      (await ProjectStorage.recoverLatestSnapshot());
+    if (recovered) {
+      switchProject(recovered);
+      return recovered;
+    }
+    return null;
+  }, [project.id, switchProject]);
+
+  const loadProject = useCallback(
+    (loaded: Project) => {
+      switchProject(loaded);
+    },
+    [switchProject]
   );
 
   const resetProject = useCallback(() => {
     const fresh = createDefaultProject();
-    pushHistory(project);
-    setProject(fresh);
-    audioEngine.setProject(fresh);
-    ProjectStorage.saveProject(fresh);
-  }, [project, pushHistory, audioEngine]);
+    switchProject(fresh);
+  }, [switchProject]);
 
   return {
     project,
@@ -794,6 +909,9 @@ export function useProjectStore() {
     setGhostNotesEnabled,
     theme,
     setTheme,
+    saveStatus,
+    hasUnsavedChanges,
+    saveProjectManual,
     togglePlay,
     stopPlayback,
     setBpm,
@@ -834,6 +952,11 @@ export function useProjectStore() {
     reorderMasteringProcessors,
     updateProjectTracks,
     loadTemplate,
+    createNewProject,
+    duplicateCurrentProject,
+    editProjectMetadata,
+    switchProject,
+    recoverLatestSnapshot,
     loadProject,
     resetProject,
     undo,

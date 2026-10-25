@@ -10,15 +10,19 @@ interface KeyboardShortcutsModalProps {
 }
 
 const SHORTCUTS = [
-  { key: 'Space', desc: 'Play / Pause playback' },
-  { key: 'Enter', desc: 'Stop playback and return to beginning' },
-  { key: 'Ctrl / ⌘ + S', desc: 'Save project to storage' },
+  { key: 'Space', desc: 'Play / Pause transport' },
+  { key: 'Enter', desc: 'Stop playback and rewind to start' },
+  { key: 'Ctrl / ⌘ + N', desc: 'Create new project wizard' },
+  { key: 'Ctrl / ⌘ + O', desc: 'Open project library & dashboard' },
+  { key: 'Ctrl / ⌘ + S', desc: 'Save project to IndexedDB' },
+  { key: 'Ctrl / ⌘ + E', desc: 'Export rendered audio (WAV / Stems)' },
+  { key: 'Ctrl / ⌘ + K', desc: 'Quick command search palette' },
   { key: 'Ctrl / ⌘ + Z', desc: 'Undo last action' },
   { key: 'Ctrl / ⌘ + Shift + Z', desc: 'Redo previously undone action' },
-  { key: 'Ctrl / ⌘ + D', desc: 'Duplicate selected clip' },
+  { key: 'Ctrl / ⌘ + D', desc: 'Duplicate selected arrangement clip' },
   { key: 'Delete / Backspace', desc: 'Delete selected clip or note' },
-  { key: '1 - 7', desc: 'Switch view (Playlist, Channel Rack, Piano Roll, Mixer, Performance, DJ, Mastering)' },
-  { key: 'Esc', desc: 'Close open dialogs or deselect items' },
+  { key: '1 - 7', desc: 'Switch views (Playlist, Rack, Piano, Mixer, Pads, DJ, Master)' },
+  { key: 'Esc', desc: 'Close dialogs or clear selection' },
 ];
 
 export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({

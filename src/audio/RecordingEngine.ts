@@ -1,10 +1,15 @@
 /**
- * BeatFlow Studio - Audio Recording Engine
- * Real-time microphone input capture, live input level meter, AudioBuffer decoding,
- * and seamless creation of audio assets for arrangement clips.
+ * BeatFlow Studio - Audio Recording Engine (Phase 14)
+ * Multi-device input selection, real-time input meter (Peak/RMS), live monitoring with gain control,
+ * live waveform visualization analysis, pause/resume recording, multi-take support, and IndexedDB persistence.
  */
 import { AudioAsset } from '../types/project';
 import { AssetStorage } from '../storage/AssetStorage';
+
+export interface InputDeviceInfo {
+  deviceId: string;
+  label: string;
+}
 
 export class RecordingEngine {
   private mediaStream: MediaStream | null = null;
@@ -13,46 +18,142 @@ export class RecordingEngine {
   private audioContext: AudioContext;
   private micSourceNode: MediaStreamAudioSourceNode | null = null;
   private micAnalyserNode: AnalyserNode | null = null;
+  private monitorGainNode: GainNode | null = null;
   private isRecording = false;
+  private isPaused = false;
+  private activeDeviceId: string | null = null;
 
   constructor(audioContext: AudioContext) {
     this.audioContext = audioContext;
   }
 
-  async requestMicrophone(): Promise<MediaStream> {
-    if (this.mediaStream) return this.mediaStream;
+  /**
+   * Returns list of available audio input devices (microphones/interfaces)
+   */
+  static async getMicrophoneDevices(): Promise<InputDeviceInfo[]> {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices
+        .filter((d) => d.kind === 'audioinput')
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${idx + 1}`,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  async requestMicrophone(deviceId?: string): Promise<MediaStream> {
+    if (this.mediaStream && (!deviceId || this.activeDeviceId === deviceId)) {
+      return this.mediaStream;
+    }
+
+    if (this.mediaStream) {
+      this.cleanup();
+    }
+
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
+
+    if (deviceId) {
+      audioConstraints.deviceId = { exact: deviceId };
+    }
 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
+      audio: audioConstraints,
     });
+    this.activeDeviceId = deviceId || null;
 
-    // Set up monitoring analyser
+    // Set up live monitoring & analyser graph
     this.micSourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.micAnalyserNode = this.audioContext.createAnalyser();
-    this.micAnalyserNode.fftSize = 256;
+    this.micAnalyserNode.fftSize = 512;
+    this.micAnalyserNode.smoothingTimeConstant = 0.4;
     this.micSourceNode.connect(this.micAnalyserNode);
+
+    // Monitoring node (default muted for safety)
+    this.monitorGainNode = this.audioContext.createGain();
+    this.monitorGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+    this.micSourceNode.connect(this.monitorGainNode);
+    this.monitorGainNode.connect(this.audioContext.destination);
 
     return this.mediaStream;
   }
 
-  getLiveInputLevel(): number {
-    if (!this.micAnalyserNode) return 0;
+  /**
+   * Sets low-latency microphone monitoring into headphones.
+   * Volume is 0 to 1.
+   */
+  setMonitoring(enabled: boolean, volume = 0.75): void {
+    if (!this.monitorGainNode) return;
+    const targetGain = enabled ? Math.max(0, Math.min(1.0, volume)) : 0;
+    this.monitorGainNode.gain.setTargetAtTime(targetGain, this.audioContext.currentTime, 0.05);
+  }
+
+  /**
+   * Calculates live Peak and RMS input meter levels (0.0 to 1.0)
+   */
+  getLiveInputLevels(): { peak: number; rms: number; peakDb: number; isClipping: boolean } {
+    if (!this.micAnalyserNode) {
+      return { peak: 0, rms: 0, peakDb: -60, isClipping: false };
+    }
+
     const data = new Float32Array(this.micAnalyserNode.fftSize);
     this.micAnalyserNode.getFloatTimeDomainData(data);
+
     let peak = 0;
+    let sumSquares = 0;
+
     for (let i = 0; i < data.length; i++) {
       const val = Math.abs(data[i]);
       if (val > peak) peak = val;
+      sumSquares += val * val;
     }
-    return Math.min(1.0, peak * 2.5);
+
+    const rms = Math.sqrt(sumSquares / data.length);
+    const peakDb = peak > 0.0001 ? 20 * Math.log10(peak) : -60;
+    const isClipping = peak >= 0.99;
+
+    return {
+      peak: Math.min(1.0, peak),
+      rms: Math.min(1.0, rms * 1.8),
+      peakDb: Math.round(peakDb * 10) / 10,
+      isClipping,
+    };
   }
 
-  async startRecording(): Promise<void> {
-    const stream = await this.requestMicrophone();
+  /**
+   * Legacy simple level getter
+   */
+  getLiveInputLevel(): number {
+    return this.getLiveInputLevels().peak;
+  }
+
+  /**
+   * Copies live time domain data for canvas waveform oscilloscopes
+   */
+  getLiveTimeDomainData(outArray: Float32Array): void {
+    if (this.micAnalyserNode) {
+      this.micAnalyserNode.getFloatTimeDomainData(outArray as any);
+    }
+  }
+
+  /**
+   * Copies live frequency data for spectrum bars
+   */
+  getLiveByteFrequencyData(outArray: Uint8Array): void {
+    if (this.micAnalyserNode) {
+      this.micAnalyserNode.getByteFrequencyData(outArray as any);
+    }
+  }
+
+  async startRecording(deviceId?: string): Promise<void> {
+    const stream = await this.requestMicrophone(deviceId);
     this.recordedChunks = [];
 
     const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -69,6 +170,29 @@ export class RecordingEngine {
 
     this.mediaRecorder.start(100);
     this.isRecording = true;
+    this.isPaused = false;
+  }
+
+  pauseRecording(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      this.mediaRecorder.pause();
+      this.isPaused = true;
+    }
+  }
+
+  resumeRecording(): void {
+    if (this.mediaRecorder && this.mediaRecorder.state === 'paused') {
+      this.mediaRecorder.resume();
+      this.isPaused = false;
+    }
+  }
+
+  getIsRecording(): boolean {
+    return this.isRecording;
+  }
+
+  getIsPaused(): boolean {
+    return this.isPaused;
   }
 
   async stopRecording(clipName = 'Vocal Record'): Promise<{ asset: AudioAsset; buffer: AudioBuffer }> {
@@ -80,6 +204,7 @@ export class RecordingEngine {
 
       this.mediaRecorder.onstop = async () => {
         this.isRecording = false;
+        this.isPaused = false;
         try {
           const blob = new Blob(this.recordedChunks, {
             type: this.mediaRecorder?.mimeType || 'audio/webm',
@@ -129,7 +254,12 @@ export class RecordingEngine {
     }
     this.micSourceNode?.disconnect();
     this.micSourceNode = null;
+    this.micAnalyserNode?.disconnect();
     this.micAnalyserNode = null;
+    this.monitorGainNode?.disconnect();
+    this.monitorGainNode = null;
     this.isRecording = false;
+    this.isPaused = false;
+    this.activeDeviceId = null;
   }
 }

@@ -271,9 +271,77 @@ export interface MasteringSession {
   ditherType: 'none' | 'tpdf';
 }
 
+export type ProjectType =
+  | 'empty'
+  | 'beat'
+  | 'song'
+  | 'podcast'
+  | 'remix'
+  | 'live'
+  | 'mastering';
+
+export type Genre =
+  | 'hiphop'
+  | 'trap'
+  | 'lofi'
+  | 'edm'
+  | 'house'
+  | 'techno'
+  | 'pop'
+  | 'rock'
+  | 'ambient'
+  | 'cinematic'
+  | 'bollywood'
+  | 'classical_indian'
+  | 'punjabi'
+  | 'drill'
+  | 'dnb';
+
+export interface ProjectMetadata {
+  id: string;
+  name: string;
+  description?: string;
+  projectType: ProjectType;
+  genre?: string;
+  bpm: number;
+  timeSignature: [number, number];
+  trackCount: number;
+  patternCount: number;
+  durationSeconds: number;
+  coverColor?: string;
+  tags?: string[];
+  isFavorite?: boolean;
+  sampleRate?: number;
+  createdAt: number;
+  updatedAt: number;
+  version: number;
+}
+
+export interface NewProjectOptions {
+  name: string;
+  description?: string;
+  projectType: ProjectType;
+  genre?: Genre | 'blank';
+  bpm?: number;
+  timeSignature?: [number, number];
+  sampleRate?: number;
+  outputConfig?: string;
+  coverColor?: string;
+  tags?: string[];
+}
+
 export interface Project {
   id: string;
   name: string;
+  description?: string;
+  projectType?: ProjectType;
+  genre?: Genre | string;
+  coverColor?: string;
+  tags?: string[];
+  isFavorite?: boolean;
+  sampleRate?: number;
+  outputConfig?: string;
+  version?: number;
   bpm: number;
   timeSignature: [number, number]; // [4, 4]
   swing: number; // 0 to 1
